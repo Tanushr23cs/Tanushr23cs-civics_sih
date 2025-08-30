@@ -1,0 +1,16 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:my_app/main.dart';
+
+void main() {
+  testWidgets('Complaints screen loads', (WidgetTester tester) async {
+    // Build our app and trigger a frame.
+    await tester.pumpWidget(MyApp());
+
+    // Verify that the title "Complaints" is displayed.
+    expect(find.text('Complaints'), findsOneWidget);
+
+    // If there are no complaints, verify the "No complaints found" text.
+    expect(find.text('No complaints found.'), findsOneWidget);
+  });
+}
