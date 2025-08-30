@@ -59,7 +59,7 @@ class _WelcomePageState extends State<WelcomePage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Countdown to Catastrophe"),
+        title: const Text("Hello!"),
         backgroundColor: Colors.blue.shade800,
         actions: [
           TextButton(
@@ -100,7 +100,7 @@ class _WelcomePageState extends State<WelcomePage>
             children: [
               Image.network(
                 "https://cdn-icons-png.flaticon.com/512/4149/4149678.png",
-                height: 150,
+                height: 140,
               ),
               const SizedBox(height: 20),
               const Text(
