@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:my_app/main.dart';
+import 'package:my_app/main.dart'; // Ensure main.dart defines MyApp
 
 void main() {
   testWidgets('Complaints screen loads', (WidgetTester tester) async {
