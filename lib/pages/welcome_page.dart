@@ -84,7 +84,11 @@ class _WelcomePageState extends State<WelcomePage>
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.location_city, color: Colors.white, size: 30),
+                    const Icon(
+                      Icons.location_city,
+                      color: Colors.white,
+                      size: 30,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       'Civics Reporter',
@@ -136,8 +140,8 @@ class _WelcomePageState extends State<WelcomePage>
                     elevation: 12,
                     child: Container(
                       decoration: BoxDecoration(
-                        image: DecorationImage(
-                          image: const AssetImage("assets/images/back.png"),
+                        image: const DecorationImage(
+                          image: AssetImage("assets/images/back.png"),
                           fit: BoxFit.cover,
                           opacity: 0.15,
                         ),

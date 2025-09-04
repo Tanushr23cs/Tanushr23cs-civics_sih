@@ -5,7 +5,7 @@ import 'package:my_app/main.dart'; // Ensure main.dart defines MyApp
 void main() {
   testWidgets('Complaints screen loads', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(MyApp());
+    await tester.pumpWidget(const MyApp());
 
     // Verify that the title "Complaints" is displayed.
     expect(find.text('Complaints'), findsOneWidget);
