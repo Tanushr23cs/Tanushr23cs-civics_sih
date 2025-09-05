@@ -12,7 +12,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:my_app/pages/welcome_page.dart';
-import 'package:path/path.dart' as path;
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -113,18 +112,16 @@ class _DashboardPageState extends State<DashboardPage> {
   // ✅ Compress image
   Future<File> _compressImage(File file) async {
     final targetPath = "${file.path}_compressed.jpg";
-
-    // Light compression for fast upload from laptop
     final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
       file.absolute.path,
       targetPath,
-      quality: 80, // good quality, still smaller file
-      minWidth: 1200, // moderate resizing
+      quality: 80,
+      minWidth: 1200,
       minHeight: 1200,
       format: CompressFormat.jpeg,
     );
 
-    return File(compressed?.path ?? file.path);
+    return compressed == null ? file : File(compressed.path);
   }
 
   // ✅ Upload file to Firebase Storage
@@ -138,71 +135,73 @@ class _DashboardPageState extends State<DashboardPage> {
       );
 
       UploadTask uploadTask;
-
       if (kIsWeb) {
         uploadTask = ref.putData(await file.readAsBytes());
       } else {
         File rawFile = File(file.path);
-        if (type == "image") {
-          rawFile = await _compressImage(rawFile);
-        }
+        if (type == "image") rawFile = await _compressImage(rawFile);
         uploadTask = ref.putFile(rawFile);
       }
 
       final taskSnapshot = await uploadTask.whenComplete(() {});
-      if (taskSnapshot.state == TaskState.success) {
-        return await ref.getDownloadURL();
-      }
-      return null;
+      return await taskSnapshot.ref.getDownloadURL();
     } catch (e) {
       debugPrint("Upload error: $e");
       return null;
     }
   }
 
-  // ✅ Submit report with parallel uploads
+  // ✅ Submit report
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isUploading = true);
-
-    final futures = <Future<String?>>[];
-
-    if (_pickedImage != null) futures.add(_uploadFile(_pickedImage!, 'image'));
-    if (_pickedVideo != null) futures.add(_uploadFile(_pickedVideo!, 'video'));
-
-    final results = await Future.wait(futures);
 
     String? imageUrl;
     String? videoUrl;
 
-    if (_pickedImage != null) imageUrl = results.isNotEmpty ? results[0] : null;
-    if (_pickedVideo != null)
-      videoUrl = results.length > 1 ? results[1] : results[0];
+    if (_pickedImage != null) {
+      imageUrl = await _uploadFile(_pickedImage!, 'image');
+    }
+    if (_pickedVideo != null) {
+      videoUrl = await _uploadFile(_pickedVideo!, 'video');
+    }
 
-    await FirebaseFirestore.instance.collection('reports').add({
-      'title': _titleCtrl.text.trim().isEmpty ? null : _titleCtrl.text.trim(),
-      'description': _descCtrl.text.trim(),
-      'lat': _currentPoint.latitude,
-      'lng': _currentPoint.longitude,
-      'createdAt': FieldValue.serverTimestamp(),
-      'status': "Submitted",
-      'imageUrl': imageUrl,
-      'videoUrl': videoUrl,
-      'userId': FirebaseAuth.instance.currentUser?.uid,
-    });
+    try {
+      await FirebaseFirestore.instance.collection('reports').add({
+        'title': _titleCtrl.text.trim().isEmpty
+            ? "Untitled Report"
+            : _titleCtrl.text.trim(),
+        'description': _descCtrl.text.trim(),
+        'lat': _currentPoint.latitude,
+        'lng': _currentPoint.longitude,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': "Submitted",
+        'imageUrl': imageUrl,
+        'videoUrl': videoUrl,
+        'userId': FirebaseAuth.instance.currentUser?.uid,
+      });
 
-    setState(() {
       _titleCtrl.clear();
       _descCtrl.clear();
-      _pickedImage = null;
-      _pickedVideo = null;
-      _isUploading = false;
-    });
+      setState(() {
+        _pickedImage = null;
+        _pickedVideo = null;
+        _isUploading = false;
+      });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Report submitted successfully!")),
-    );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Report submitted successfully!")),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+      setState(() => _isUploading = false);
+    }
   }
 
   @override
@@ -321,12 +320,14 @@ class _DashboardPageState extends State<DashboardPage> {
               TextFormField(
                 controller: _descCtrl,
                 maxLines: 3,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) &&
-                        _pickedImage == null &&
-                        _pickedVideo == null
-                    ? "Provide description or attach media"
-                    : null,
+                validator: (v) {
+                  if ((v == null || v.trim().isEmpty) &&
+                      _pickedImage == null &&
+                      _pickedVideo == null) {
+                    return "Provide description or attach media";
+                  }
+                  return null;
+                },
                 decoration: InputDecoration(
                   labelText: "Short description",
                   prefixIcon: const Icon(Icons.edit_note, color: Colors.indigo),
@@ -380,12 +381,12 @@ class _DashboardPageState extends State<DashboardPage> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: kIsWeb
-                      ? FutureBuilder<dynamic>(
+                      ? FutureBuilder(
                           future: _pickedImage!.readAsBytes(),
                           builder: (context, snapshot) {
                             if (snapshot.hasData) {
                               return Image.memory(
-                                snapshot.data,
+                                snapshot.data!,
                                 height: 140,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
@@ -541,11 +542,10 @@ class _DashboardPageState extends State<DashboardPage> {
                   .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final docs = snapshot.data!.docs;
-                if (docs.isEmpty) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return Padding(
                     padding: const EdgeInsets.all(12),
                     child: Text(
@@ -555,6 +555,8 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   );
                 }
+
+                final docs = snapshot.data!.docs;
                 return ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -562,6 +564,12 @@ class _DashboardPageState extends State<DashboardPage> {
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
+                    final createdAt = (data['createdAt'] as Timestamp?)
+                        ?.toDate();
+                    final createdStr = createdAt != null
+                        ? "${createdAt.toLocal()}".substring(0, 16)
+                        : "Pending";
+
                     return ListTile(
                       leading: data['imageUrl'] != null
                           ? ClipRRect(
@@ -586,7 +594,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             ),
                       title: Text(data['title'] ?? "Untitled report"),
                       subtitle: Text(
-                        "${data['status']} • ${(data['createdAt'] as Timestamp?)?.toDate().toLocal().toString().substring(0, 16) ?? ''}",
+                        "${data['status'] ?? 'Unknown'} • $createdStr",
                       ),
                       trailing: const Icon(Icons.chevron_right),
                     );

@@ -19,10 +19,13 @@ class _LoginPageState extends State<LoginPage> {
 
   bool loading = false;
 
-  void loginUser() async {
+  // Login Function
+  Future<void> loginUser() async {
+    FocusScope.of(context).unfocus(); // Close keyboard
     setState(() {
       loading = true;
     });
+
     try {
       UserCredential user = await _auth.signInWithEmailAndPassword(
         email: emailController.text.trim(),
@@ -30,6 +33,7 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (user.user != null) {
+        // Navigate to dashboard (replace with your actual route)
         Navigator.pushReplacementNamed(context, '/dashboard');
       }
     } on FirebaseAuthException catch (e) {
@@ -45,11 +49,22 @@ class _LoginPageState extends State<LoginPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('An error occurred')));
     } finally {
       setState(() {
         loading = false;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
   }
 
   @override
@@ -164,6 +179,7 @@ class _LoginPageState extends State<LoginPage> {
                               const SizedBox(height: 20),
                               TextField(
                                 controller: emailController,
+                                keyboardType: TextInputType.emailAddress,
                                 decoration: InputDecoration(
                                   labelText: "Email",
                                   prefixIcon: const Icon(

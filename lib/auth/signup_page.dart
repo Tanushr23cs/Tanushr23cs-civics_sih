@@ -18,7 +18,10 @@ class _SignupPageState extends State<SignupPage> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
 
-  void _signupUser() async {
+  // Signup function
+  Future<void> _signupUser() async {
+    FocusScope.of(context).unfocus(); // Close keyboard
+
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -30,9 +33,7 @@ class _SignupPageState extends State<SignupPage> {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
       UserCredential userCredential = await _auth
@@ -49,14 +50,18 @@ class _SignupPageState extends State<SignupPage> {
         message = "Password is too weak.";
       } else if (e.code == 'email-already-in-use') {
         message = "Email already in use.";
+      } else if (e.code == 'invalid-email') {
+        message = "Invalid email address.";
       }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Something went wrong.")));
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
   }
 
@@ -82,7 +87,7 @@ class _SignupPageState extends State<SignupPage> {
         child: SafeArea(
           child: Column(
             children: [
-              // 🔹 Top Navigation with Logo
+              // 🔹 Top Navigation
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -118,24 +123,6 @@ class _SignupPageState extends State<SignupPage> {
                         'Home',
                         style: TextStyle(color: Colors.white),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () {},
-                      child: const Text(
-                        'Issues',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () {},
-                      child: const Text(
-                        'Status',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () {},
-                      icon: const Icon(Icons.help_outline, color: Colors.white),
                     ),
                   ],
                 ),
@@ -180,6 +167,7 @@ class _SignupPageState extends State<SignupPage> {
                             const SizedBox(height: 16),
                             TextField(
                               controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
                               decoration: InputDecoration(
                                 labelText: "Email",
                                 prefixIcon: const Icon(

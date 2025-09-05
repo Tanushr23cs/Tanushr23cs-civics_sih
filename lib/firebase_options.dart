@@ -41,48 +41,54 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDtcQXZpw7NqHhmXzYPuZdfjKoad44gJW0',
-    appId: '1:649861279221:web:4bcb7479a0785bf66f04bc',
-    messagingSenderId: '649861279221',
-    projectId: 'report-app-ccc12',
-    authDomain: 'report-app-ccc12.firebaseapp.com',
-    storageBucket: 'report-app-ccc12.firebasestorage.app',
-    measurementId: 'G-SFF602NMFL',
+    apiKey: 'AIzaSyB38DnSdbrlUPjt2c7jqMa57ng1lmTcMBU',
+    appId: '1:223519695109:web:c7d66882fc2f4174a6576c',
+    messagingSenderId: '223519695109',
+    projectId: 'my-civic-app',
+    authDomain: 'my-civic-app.firebaseapp.com',
+    storageBucket: 'my-civic-app.firebasestorage.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyB7zsecRS9A8r1eqn49Ar6tRJWuhjhgZWY',
-    appId: '1:649861279221:android:4ea3651cf5d510326f04bc',
-    messagingSenderId: '649861279221',
-    projectId: 'report-app-ccc12',
-    storageBucket: 'report-app-ccc12.firebasestorage.app',
+    apiKey: 'AIzaSyClv6I_is4XulQ2V351wcCeVd8RyY8S3Bw',
+    appId: '1:223519695109:android:95a604e69ce18695a6576c',
+    messagingSenderId: '223519695109',
+    projectId: 'my-civic-app',
+    storageBucket: 'my-civic-app.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyB3vUvwkRf0LHsMrW_Lw5FI7KmoVWM0kkk',
-    appId: '1:649861279221:ios:24b2175f87153fa26f04bc',
-    messagingSenderId: '649861279221',
-    projectId: 'report-app-ccc12',
-    storageBucket: 'report-app-ccc12.firebasestorage.app',
+    apiKey: 'AIzaSyCGJXUMZhL7FFdftucfTGBs9JX-WYVtIBQ',
+    appId: '1:223519695109:ios:d049faebc967b41aa6576c',
+    messagingSenderId: '223519695109',
+    projectId: 'my-civic-app',
+    storageBucket: 'my-civic-app.firebasestorage.app',
+    androidClientId:
+        '223519695109-idf7dnioffvjcgd6037g9fn1e4voifb8.apps.googleusercontent.com',
+    iosClientId:
+        '223519695109-02l3lo247qg7k9kjq3570bafrc4dcpjt.apps.googleusercontent.com',
     iosBundleId: 'com.example.myApp',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyB3vUvwkRf0LHsMrW_Lw5FI7KmoVWM0kkk',
-    appId: '1:649861279221:ios:24b2175f87153fa26f04bc',
-    messagingSenderId: '649861279221',
-    projectId: 'report-app-ccc12',
-    storageBucket: 'report-app-ccc12.firebasestorage.app',
+    apiKey: 'AIzaSyCGJXUMZhL7FFdftucfTGBs9JX-WYVtIBQ',
+    appId: '1:223519695109:ios:d049faebc967b41aa6576c',
+    messagingSenderId: '223519695109',
+    projectId: 'my-civic-app',
+    storageBucket: 'my-civic-app.firebasestorage.app',
+    androidClientId:
+        '223519695109-idf7dnioffvjcgd6037g9fn1e4voifb8.apps.googleusercontent.com',
+    iosClientId:
+        '223519695109-02l3lo247qg7k9kjq3570bafrc4dcpjt.apps.googleusercontent.com',
     iosBundleId: 'com.example.myApp',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyDtcQXZpw7NqHhmXzYPuZdfjKoad44gJW0',
-    appId: '1:649861279221:web:d2dbea53dbc02cb36f04bc',
-    messagingSenderId: '649861279221',
-    projectId: 'report-app-ccc12',
-    authDomain: 'report-app-ccc12.firebaseapp.com',
-    storageBucket: 'report-app-ccc12.firebasestorage.app',
-    measurementId: 'G-FYRZDHK4WW',
+    apiKey: 'AIzaSyB38DnSdbrlUPjt2c7jqMa57ng1lmTcMBU',
+    appId: '1:223519695109:web:921d0b399ca1cda9a6576c',
+    messagingSenderId: '223519695109',
+    projectId: 'my-civic-app',
+    authDomain: 'my-civic-app.firebaseapp.com',
+    storageBucket: 'my-civic-app.firebasestorage.app',
   );
 }
