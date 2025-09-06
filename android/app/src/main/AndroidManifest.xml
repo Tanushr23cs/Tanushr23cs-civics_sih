@@ -33,7 +33,7 @@
             <!-- Google Maps API Key -->
             <meta-data
                 android:name="com.google.android.geo.API_KEY"
-                android:value="AIzaSyCPEn1bEJYugqVWN5WCmOMEEZXWtNysBfk" />
+                android:value="AIzaSyDSaKt0Myalwg8p5k6EWnN4XhjsWumAwxM" />
 
             <!-- Launcher intent -->
             <intent-filter>

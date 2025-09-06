@@ -1,17 +1,126 @@
-// lib/pages/dashboard_page.dart
-import 'dart:io';
+import 'dart:typed_data';
+import 'dart:io' as io;
+import 'package:path/path.dart' as p;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:latlong2/latlong.dart' as flmap;
+import 'package:flutter_map/flutter_map.dart' as flmapWidgets;
+import 'package:url_launcher/url_launcher.dart';
 import 'package:my_app/pages/welcome_page.dart';
+
+class FirestoreService {
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+
+  Future<String?> uploadFile(XFile file, String type) async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
+      final fileName =
+          "${DateTime.now().millisecondsSinceEpoch}_$type.${file.name.split('.').last}";
+      final ref = _storage.ref().child('reports/$uid/$fileName');
+
+      UploadTask uploadTask;
+
+      if (kIsWeb) {
+        Uint8List bytes = await file.readAsBytes();
+        if (type == 'image') {
+          bytes = await compressImageWeb(bytes);
+        }
+        uploadTask = ref.putData(bytes);
+      } else {
+        io.File rawFile = io.File(file.path);
+        if (type == 'image') {
+          final compressedXFile = await _compressImage(rawFile);
+          if (compressedXFile != null) {
+            rawFile = io.File(compressedXFile.path);
+          }
+        }
+        uploadTask = ref.putFile(rawFile);
+      }
+
+      await uploadTask;
+      return await ref.getDownloadURL();
+    } catch (e) {
+      debugPrint("Upload error: $e");
+      return null;
+    }
+  }
+
+  Future<XFile?> _compressImage(io.File file) async {
+    final targetPath = "${file.path}_compressed.jpg";
+    final compressedFile = await FlutterImageCompress.compressAndGetFile(
+      file.path,
+      targetPath,
+      quality: 80,
+      minWidth: 1200,
+      minHeight: 1200,
+      format: CompressFormat.jpeg,
+    );
+    return compressedFile;
+  }
+
+  Future<Uint8List> compressImageWeb(Uint8List bytes) async {
+    final result = await FlutterImageCompress.compressWithList(
+      bytes,
+      quality: 80,
+      minWidth: 1200,
+      minHeight: 1200,
+      format: CompressFormat.jpeg,
+    );
+    return result;
+  }
+
+  Future<void> addReport({
+    required String title,
+    required String description,
+    String? imageUrl,
+    String? videoUrl,
+    Map<String, double>? location,
+  }) async {
+    try {
+      await _db.collection('reportapp').add({
+        'title': title,
+        'description': description,
+        'imageUrl': imageUrl ?? '',
+        'videoUrl': videoUrl ?? '',
+        'location': location,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'Submitted',
+        'userId': FirebaseAuth.instance.currentUser?.uid ?? 'anonymous',
+        'upvotes': 0,
+        'downvotes': 0,
+      });
+      debugPrint("Report added successfully ✅");
+    } catch (e) {
+      debugPrint("Firestore error: $e ❌");
+    }
+  }
+
+  Future<void> upvoteReport(String docId) async {
+    final ref = _db.collection('reportapp').doc(docId);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final current = snapshot.get('upvotes') ?? 0;
+      transaction.update(ref, {'upvotes': current + 1});
+    });
+  }
+
+  Future<void> downvoteReport(String docId) async {
+    final ref = _db.collection('reportapp').doc(docId);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final current = snapshot.get('downvotes') ?? 0;
+      transaction.update(ref, {'downvotes': current + 1});
+    });
+  }
+}
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -27,17 +136,27 @@ class _DashboardPageState extends State<DashboardPage> {
 
   XFile? _pickedImage;
   XFile? _pickedVideo;
-
-  LatLng _currentPoint = const LatLng(23.6102, 85.2799);
-  final MapController _mapController = MapController();
-
+  flmap.LatLng _currentPoint = const flmap.LatLng(23.6102, 85.2799);
+  double _currentZoom = 6.0;
+  final flmapWidgets.MapController _mapController =
+      flmapWidgets.MapController();
   bool _isUploading = false;
+
+  final FirestoreService _service = FirestoreService();
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
     _getLocation();
     FirebaseStorage.instance.setMaxUploadRetryTime(const Duration(minutes: 5));
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _getLocation() async {
@@ -50,21 +169,17 @@ class _DashboardPageState extends State<DashboardPage> {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.deniedForever ||
-          permission == LocationPermission.denied) {
+          permission == LocationPermission.denied)
         return;
-      }
 
       final pos = await Geolocator.getCurrentPosition();
-      setState(() {
-        _currentPoint = LatLng(pos.latitude, pos.longitude);
-      });
-      _mapController.move(_currentPoint, 15);
+      setState(() => _currentPoint = flmap.LatLng(pos.latitude, pos.longitude));
+      _mapController.move(_currentPoint, _currentZoom);
     }
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final result = await picker.pickImage(source: ImageSource.gallery);
+    final result = await _picker.pickImage(source: ImageSource.gallery);
     if (result != null) {
       setState(() {
         _pickedImage = result;
@@ -74,8 +189,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _captureImage() async {
-    final picker = ImagePicker();
-    final result = await picker.pickImage(source: ImageSource.camera);
+    final result = await _picker.pickImage(source: ImageSource.camera);
     if (result != null) {
       setState(() {
         _pickedImage = result;
@@ -85,8 +199,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _pickVideo() async {
-    final picker = ImagePicker();
-    final result = await picker.pickVideo(source: ImageSource.gallery);
+    final result = await _picker.pickVideo(source: ImageSource.gallery);
     if (result != null) {
       setState(() {
         _pickedVideo = result;
@@ -96,8 +209,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _recordVideo() async {
-    final picker = ImagePicker();
-    final result = await picker.pickVideo(
+    final result = await _picker.pickVideo(
       source: ImageSource.camera,
       maxDuration: const Duration(seconds: 15),
     );
@@ -109,99 +221,61 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  // ✅ Compress image
-  Future<File> _compressImage(File file) async {
-    final targetPath = "${file.path}_compressed.jpg";
-    final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
-      file.absolute.path,
-      targetPath,
-      quality: 80,
-      minWidth: 1200,
-      minHeight: 1200,
-      format: CompressFormat.jpeg,
-    );
-
-    return compressed == null ? file : File(compressed.path);
-  }
-
-  // ✅ Upload file to Firebase Storage
-  Future<String?> _uploadFile(XFile file, String type) async {
-    try {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-      final fileName =
-          "${DateTime.now().millisecondsSinceEpoch}_$type.${file.name.split('.').last}";
-      final ref = FirebaseStorage.instance.ref().child(
-        'reports/$uid/$fileName',
-      );
-
-      UploadTask uploadTask;
-      if (kIsWeb) {
-        uploadTask = ref.putData(await file.readAsBytes());
-      } else {
-        File rawFile = File(file.path);
-        if (type == "image") rawFile = await _compressImage(rawFile);
-        uploadTask = ref.putFile(rawFile);
-      }
-
-      final taskSnapshot = await uploadTask.whenComplete(() {});
-      return await taskSnapshot.ref.getDownloadURL();
-    } catch (e) {
-      debugPrint("Upload error: $e");
-      return null;
-    }
-  }
-
-  // ✅ Submit report
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_pickedImage == null && _pickedVideo == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please select an image or video."),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isUploading = true);
 
     String? imageUrl;
     String? videoUrl;
 
     if (_pickedImage != null) {
-      imageUrl = await _uploadFile(_pickedImage!, 'image');
+      imageUrl = await _service.uploadFile(_pickedImage!, 'image');
     }
     if (_pickedVideo != null) {
-      videoUrl = await _uploadFile(_pickedVideo!, 'video');
+      videoUrl = await _service.uploadFile(_pickedVideo!, 'video');
     }
 
-    try {
-      await FirebaseFirestore.instance.collection('reports').add({
-        'title': _titleCtrl.text.trim().isEmpty
-            ? "Untitled Report"
-            : _titleCtrl.text.trim(),
-        'description': _descCtrl.text.trim(),
-        'lat': _currentPoint.latitude,
-        'lng': _currentPoint.longitude,
-        'createdAt': FieldValue.serverTimestamp(),
-        'status': "Submitted",
-        'imageUrl': imageUrl,
-        'videoUrl': videoUrl,
-        'userId': FirebaseAuth.instance.currentUser?.uid,
-      });
-
-      _titleCtrl.clear();
-      _descCtrl.clear();
-      setState(() {
-        _pickedImage = null;
-        _pickedVideo = null;
-        _isUploading = false;
-      });
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Report submitted successfully!")),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Error: $e")));
-      }
+    if ((_pickedImage != null && imageUrl == null) ||
+        (_pickedVideo != null && videoUrl == null)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("File upload failed.")));
       setState(() => _isUploading = false);
+      return;
     }
+
+    await _service.addReport(
+      title: _titleCtrl.text.trim().isEmpty
+          ? "Untitled Report"
+          : _titleCtrl.text.trim(),
+      description: _descCtrl.text.trim(),
+      imageUrl: imageUrl,
+      videoUrl: videoUrl,
+      location: {'lat': _currentPoint.latitude, 'lng': _currentPoint.longitude},
+    );
+
+    _titleCtrl.clear();
+    _descCtrl.clear();
+    setState(() {
+      _pickedImage = null;
+      _pickedVideo = null;
+      _isUploading = false;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Report submitted successfully!")),
+    );
   }
 
   @override
@@ -219,7 +293,7 @@ class _DashboardPageState extends State<DashboardPage> {
         child: SafeArea(
           child: Column(
             children: [
-              _buildTopNav(user),
+              _buildTopNav(context, user),
               const SizedBox(height: 12),
               Expanded(
                 child: Padding(
@@ -227,8 +301,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: ListView(
                     children: [
                       _buildReportFormCard(),
-                      const SizedBox(height: 16),
-                      _buildReportsListCard(),
+                      const SizedBox(height: 12),
+                      _buildMap(),
                     ],
                   ),
                 ),
@@ -248,7 +322,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildTopNav(User? user) {
+  Widget _buildTopNav(BuildContext context, User? user) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
@@ -276,7 +350,7 @@ class _DashboardPageState extends State<DashboardPage> {
           IconButton(
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
+              if (mounted) {
                 Navigator.pushReplacementNamed(context, '/login');
               }
             },
@@ -308,50 +382,41 @@ class _DashboardPageState extends State<DashboardPage> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _titleCtrl,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: "Title",
-                  prefixIcon: const Icon(Icons.title, color: Colors.indigo),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  border: OutlineInputBorder(),
                 ),
+                validator: (val) =>
+                    val == null || val.trim().isEmpty ? "Enter a title" : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _descCtrl,
-                maxLines: 3,
-                validator: (v) {
-                  if ((v == null || v.trim().isEmpty) &&
-                      _pickedImage == null &&
-                      _pickedVideo == null) {
-                    return "Provide description or attach media";
-                  }
-                  return null;
-                },
-                decoration: InputDecoration(
-                  labelText: "Short description",
-                  prefixIcon: const Icon(Icons.edit_note, color: Colors.indigo),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                decoration: const InputDecoration(
+                  labelText: "Description",
+                  border: OutlineInputBorder(),
                 ),
+                maxLines: 3,
+                validator: (val) => val == null || val.trim().isEmpty
+                    ? "Enter a description"
+                    : null,
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pickImage,
+                    child: ElevatedButton.icon(
+                      onPressed: _isUploading ? null : _pickImage,
                       icon: const Icon(Icons.photo),
-                      label: const Text("Pick Photo"),
+                      label: const Text("Pick Image"),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _captureImage,
-                      icon: const Icon(Icons.photo_camera),
-                      label: const Text("Camera"),
+                    child: ElevatedButton.icon(
+                      onPressed: _isUploading ? null : _captureImage,
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text("Capture Image"),
                     ),
                   ),
                 ],
@@ -360,148 +425,47 @@ class _DashboardPageState extends State<DashboardPage> {
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pickVideo,
+                    child: ElevatedButton.icon(
+                      onPressed: _isUploading ? null : _pickVideo,
                       icon: const Icon(Icons.video_library),
                       label: const Text("Pick Video"),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _recordVideo,
+                    child: ElevatedButton.icon(
+                      onPressed: _isUploading ? null : _recordVideo,
                       icon: const Icon(Icons.videocam),
-                      label: const Text("Record"),
+                      label: const Text("Record Video"),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               if (_pickedImage != null)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: kIsWeb
-                      ? FutureBuilder(
-                          future: _pickedImage!.readAsBytes(),
-                          builder: (context, snapshot) {
-                            if (snapshot.hasData) {
-                              return Image.memory(
-                                snapshot.data!,
-                                height: 140,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                              );
-                            }
-                            return const SizedBox(
-                              height: 140,
-                              child: Center(child: CircularProgressIndicator()),
-                            );
-                          },
-                        )
-                      : Image.file(
-                          File(_pickedImage!.path),
-                          height: 140,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        ),
+                ListTile(
+                  leading: const Icon(Icons.image, color: Colors.indigo),
+                  title: Text(p.basename(_pickedImage!.path)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.red),
+                    onPressed: () => setState(() => _pickedImage = null),
+                  ),
                 ),
               if (_pickedVideo != null)
-                Container(
-                  height: 56,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.black12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.smart_display),
-                      const SizedBox(width: 10),
-                      Expanded(child: Text(_pickedVideo!.name)),
-                    ],
+                ListTile(
+                  leading: const Icon(Icons.videocam, color: Colors.indigo),
+                  title: Text(p.basename(_pickedVideo!.path)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.red),
+                    onPressed: () => setState(() => _pickedVideo = null),
                   ),
                 ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _getLocation,
-                      icon: const Icon(Icons.my_location),
-                      label: const Text("Use My Location"),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      "Lat: ${_currentPoint.latitude.toStringAsFixed(5)}, Lng: ${_currentPoint.longitude.toStringAsFixed(5)}",
-                      style: GoogleFonts.poppins(fontSize: 12),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 220,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: _currentPoint,
-                      initialZoom: 15,
-                      onTap: (tap, point) =>
-                          setState(() => _currentPoint = point),
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      ),
-                      MarkerLayer(
-                        markers: [
-                          Marker(
-                            point: _currentPoint,
-                            width: 40,
-                            height: 40,
-                            child: const Icon(
-                              Icons.location_pin,
-                              size: 40,
-                              color: Colors.red,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isUploading ? null : _submit,
-                  icon: _isUploading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.send),
-                  label: Text(_isUploading ? "Uploading..." : "Submit Report"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
+              ElevatedButton(
+                onPressed: _isUploading ? null : _submit,
+                child: _isUploading
+                    ? const CircularProgressIndicator()
+                    : const Text("Submit Report"),
               ),
             ],
           ),
@@ -510,100 +474,142 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildReportsListCard() {
-    return Card(
-      elevation: 12,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Text(
-                  "My Reports",
-                  style: GoogleFonts.poppins(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.indigo.shade900,
-                  ),
-                ),
-                const Spacer(),
-              ],
-            ),
-            const SizedBox(height: 8),
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('reports')
-                  .where(
-                    'userId',
-                    isEqualTo: FirebaseAuth.instance.currentUser?.uid,
-                  )
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      "No reports yet. Create your first report above.",
-                      style: GoogleFonts.poppins(fontSize: 13),
-                      textAlign: TextAlign.center,
-                    ),
-                  );
-                }
+  Widget _buildMap() {
+    return SizedBox(
+      height: 300,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('reportapp')
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-                final docs = snapshot.data!.docs;
-                return ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: docs.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final createdAt = (data['createdAt'] as Timestamp?)
-                        ?.toDate();
-                    final createdStr = createdAt != null
-                        ? "${createdAt.toLocal()}".substring(0, 16)
-                        : "Pending";
+          final reports = snapshot.data!.docs;
 
-                    return ListTile(
-                      leading: data['imageUrl'] != null
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: Image.network(
-                                data['imageUrl'],
-                                width: 48,
-                                height: 48,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : data['videoUrl'] != null
-                          ? const Icon(
-                              Icons.smart_display,
-                              size: 36,
-                              color: Colors.indigo,
-                            )
-                          : const Icon(
-                              Icons.description,
-                              size: 36,
-                              color: Colors.indigo,
-                            ),
-                      title: Text(data['title'] ?? "Untitled report"),
-                      subtitle: Text(
-                        "${data['status'] ?? 'Unknown'} • $createdStr",
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                    );
-                  },
-                );
+          return flmapWidgets.FlutterMap(
+            mapController: _mapController,
+            options: flmapWidgets.MapOptions(
+              initialCenter: _currentPoint,
+              initialZoom: _currentZoom,
+              onTap: (tapPosition, latLng) {
+                setState(() => _currentPoint = latLng);
+                _mapController.move(_currentPoint, _currentZoom);
               },
+              onPositionChanged: (pos, _) {
+                _currentZoom = pos.zoom;
+              },
+            ),
+            children: [
+              flmapWidgets.TileLayer(
+                urlTemplate:
+                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                subdomains: const ['a', 'b', 'c'],
+              ),
+              flmapWidgets.MarkerLayer(
+                markers: reports
+                    .map<flmapWidgets.Marker>((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final loc = data['location'] as Map<String, dynamic>?;
+
+                      if (loc == null) {
+                        return flmapWidgets.Marker(
+                          point: flmap.LatLng(0, 0),
+                          width: 0,
+                          height: 0,
+                          child: const SizedBox(),
+                        );
+                      }
+
+                      final point = flmap.LatLng(
+                        loc['lat']?.toDouble() ?? 0.0,
+                        loc['lng']?.toDouble() ?? 0.0,
+                      );
+
+                      return flmapWidgets.Marker(
+                        point: point,
+                        width: 50,
+                        height: 50,
+                        child: GestureDetector(
+                          onTap: () => _showReportDialog(doc.id, data),
+                          child: const Icon(
+                            Icons.location_on,
+                            size: 40,
+                            color: Colors.red,
+                          ),
+                        ),
+                      );
+                    })
+                    .where((marker) => marker.width != 0)
+                    .toList(),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showReportDialog(String docId, Map<String, dynamic> data) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(data['title'] ?? "No Title"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(data['description'] ?? ""),
+            const SizedBox(height: 8),
+            if ((data['imageUrl'] ?? "").isNotEmpty)
+              InkWell(
+                onTap: () async {
+                  await launchUrl(Uri.parse(data['imageUrl']));
+                },
+                child: const Text(
+                  "View Image",
+                  style: TextStyle(color: Colors.blue),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Column(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.thumb_up, color: Colors.green),
+                      onPressed: () async {
+                        await _service.upvoteReport(docId);
+                        Navigator.pop(context);
+                      },
+                    ),
+                    Text("${data['upvotes'] ?? 0}"),
+                  ],
+                ),
+                Column(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.thumb_down, color: Colors.red),
+                      onPressed: () async {
+                        await _service.downvoteReport(docId);
+                        Navigator.pop(context);
+                      },
+                    ),
+                    Text("${data['downvotes'] ?? 0}"),
+                  ],
+                ),
+              ],
             ),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          ),
+        ],
       ),
     );
   }

@@ -1,9 +1,8 @@
 plugins {
-    id("com.android.application")
+    id("com.android.application") version "8.9.1"
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services") // Firebase plugin
 }
-
 android {
     namespace = "com.example.my_app"
     compileSdk = 34
@@ -31,12 +30,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "21"
     }
 
     repositories {
@@ -66,4 +65,4 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 }
 // Ensure the google-services plugin is applied at the bottom of the file
-apply(plugin = "com.google.gms.google-services")
+apply plugin: 'com.google.gms.google-services'

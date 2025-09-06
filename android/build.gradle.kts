@@ -11,9 +11,10 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        // Required for the app module
-        classpath("com.google.gms:google-services:4.4.3")
-    }
+    classpath 'com.android.tools.build:gradle:7.4.2'
+    classpath 'com.google.gms:google-services:4.4.3' // example
+}
+
 }
 
 allprojects {
